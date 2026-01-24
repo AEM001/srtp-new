@@ -93,8 +93,8 @@ def render_mesh_sequence(vertices_list, faces, output_path, fps=30):
         ax.set_zlim(z_center - max_range, z_center + max_range)
         
         # 设置视角：从前方水平看直立的人体
-        # 旋转后人体Z轴向上，Y轴向前，从Y轴负方向看
-        ax.view_init(elev=0, azim=-90)
+        # 旋转后人体Z轴向上，Y轴向前，从Y轴正方向看（正面朝向观察者）
+        ax.view_init(elev=0, azim=90)
         
         # 隐藏坐标轴
         ax.set_axis_off()
