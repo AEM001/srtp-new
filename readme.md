@@ -1,5 +1,4 @@
-## 新IMU数据快速开始
-查看 `QUICKSTART.md` 了解新数据处理流程
+查看scripts/README.md了解新数据处理流程
 
 ## 原DIP-IMU数据集
 安装依赖: https://github.com/nghorbani/human_body_prior
