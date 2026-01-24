@@ -1,10 +1,12 @@
-## run command: 
-before run the code, please visit https://github.com/nghorbani/human_body_prior to install the human_body_prior package 
+## 新IMU数据快速开始
+查看 `QUICKSTART.md` 了解新数据处理流程
 
-`python evaluate.py`
-for evaluation
+## 原DIP-IMU数据集
+安装依赖: https://github.com/nghorbani/human_body_prior
 
-our data preprocessing is shown as `preprocess.py`
+运行评估: `python evaluate.py`
+
+数据预处理: `python preprocess.py`
 
 ## data download 
 before running the code, you may need to download ckpt.zip and data.zip from https://drive.google.com/drive/folders/1rxYTv5j8G-10Sxy1gwmZrP-NUHJPVqyo?usp=drive_link
