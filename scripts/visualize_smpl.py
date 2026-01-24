@@ -14,7 +14,11 @@ sys.path.insert(0, os.path.join(project_root, 'human_body_prior'))
 
 import torch
 import numpy as np
-import trimesh
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from tqdm import tqdm
 import imageio
 
@@ -31,46 +35,78 @@ MOTION_IDS = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7']
 FPS = 30
 
 def render_mesh_sequence(vertices_list, faces, output_path, fps=30):
-    """使用trimesh渲染mesh序列为视频（Mac兼容）"""
+    """使用matplotlib渲染mesh序列为视频（Mac兼容）"""
     frames = []
     
-    # 创建场景
-    scene = trimesh.Scene()
+    # 旋转顶点：人体从横躺（正面朝Z轴）变为直立（正面朝Y轴）
+    # 绕X轴旋转-90度，让Z轴变成Y轴
+    rotation_matrix = np.array([
+        [1, 0, 0],
+        [0, 0, -1],  # Y_new = -Z_old
+        [0, 1, 0]    # Z_new = Y_old
+    ])
     
-    # 设置相机参数
-    resolution = (640, 480)
-    fov = (60, 45)  # 水平和垂直视场角
+    rotated_vertices_list = []
+    for verts in vertices_list:
+        rotated_verts = verts @ rotation_matrix.T
+        rotated_vertices_list.append(rotated_verts)
+    
+    vertices_list = rotated_vertices_list
+    
+    # 计算所有帧的边界
+    all_verts = np.concatenate(vertices_list, axis=0)
+    x_center = (all_verts[:, 0].min() + all_verts[:, 0].max()) / 2
+    y_center = (all_verts[:, 1].min() + all_verts[:, 1].max()) / 2
+    z_center = (all_verts[:, 2].min() + all_verts[:, 2].max()) / 2
+    max_range = max(
+        all_verts[:, 0].max() - all_verts[:, 0].min(),
+        all_verts[:, 1].max() - all_verts[:, 1].min(),
+        all_verts[:, 2].max() - all_verts[:, 2].min()
+    ) / 2 * 1.2
+    
+    fig = plt.figure(figsize=(8, 6), dpi=100)
     
     for i, verts in enumerate(tqdm(vertices_list, desc="渲染帧")):
-        # 创建mesh
-        mesh = trimesh.Trimesh(vertices=verts, faces=faces)
-        mesh.visual.vertex_colors = [100, 150, 200, 255]
+        fig.clear()
+        ax = fig.add_subplot(111, projection='3d')
         
-        # 更新场景
-        scene = trimesh.Scene()
-        scene.add_geometry(mesh)
+        # 简化渲染：只绘制部分面（每隔N个面绘制一个）
+        step = max(1, len(faces) // 2000)  # 最多绘制2000个面
+        selected_faces = faces[::step]
         
-        # 设置相机位置（从正面看）
-        camera_transform = np.array([
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.5],
-            [0.0, 0.0, 1.0, 2.5],
-            [0.0, 0.0, 0.0, 1.0]
-        ])
-        scene.camera_transform = camera_transform
+        # 创建多边形集合
+        mesh_faces = []
+        for face in selected_faces:
+            triangle = [verts[face[0]], verts[face[1]], verts[face[2]]]
+            mesh_faces.append(triangle)
         
-        # 渲染为图像
-        try:
-            # 使用trimesh的渲染功能
-            data = scene.save_image(resolution=resolution, visible=False)
-            from PIL import Image
-            import io
-            image = np.array(Image.open(io.BytesIO(data)))
-            frames.append(image[:, :, :3])  # 只取RGB
-        except Exception as e:
-            print(f"渲染帧 {i} 失败: {e}")
-            # 创建空白帧
-            frames.append(np.ones((resolution[1], resolution[0], 3), dtype=np.uint8) * 255)
+        # 添加mesh
+        mesh_collection = Poly3DCollection(mesh_faces, alpha=0.9)
+        mesh_collection.set_facecolor([0.4, 0.6, 0.8])
+        mesh_collection.set_edgecolor([0.3, 0.5, 0.7])
+        mesh_collection.set_linewidth(0.1)
+        ax.add_collection3d(mesh_collection)
+        
+        # 设置坐标轴范围
+        ax.set_xlim(x_center - max_range, x_center + max_range)
+        ax.set_ylim(y_center - max_range, y_center + max_range)
+        ax.set_zlim(z_center - max_range, z_center + max_range)
+        
+        # 设置视角：从前方水平看直立的人体
+        # 旋转后人体Z轴向上，Y轴向前，从Y轴负方向看
+        ax.view_init(elev=0, azim=-90)
+        
+        # 隐藏坐标轴
+        ax.set_axis_off()
+        ax.set_box_aspect([1, 1, 1])
+        
+        # 保存帧
+        fig.canvas.draw()
+        buf = fig.canvas.buffer_rgba()
+        image = np.asarray(buf)[:, :, :3]
+        frames.append(image.copy())
+    
+    plt.close(fig)
     
     # 保存视频
     writer = imageio.get_writer(output_path, fps=fps, format='FFMPEG', codec='libx264')
@@ -80,49 +116,9 @@ def render_mesh_sequence(vertices_list, faces, output_path, fps=30):
     
     return frames
 
-def load_tpose_calibration(m, device):
-    """
-    加载m1的T-pose数据作为校准基准
-    返回T-pose的旋转矩阵
-    """
-    tpose_file = os.path.join(POSE_DIR, 'm1_poses.pt')
-    if not os.path.exists(tpose_file):
-        print("警告: m1_poses.pt不存在，无法进行T-pose校准")
-        return None
-    
-    data = torch.load(tpose_file, map_location=device, weights_only=False)
-    tpose_poses = data['poses']  # [T, 15, 3, 3]
-    
-    # 使用第一帧作为T-pose参考（或者取平均）
-    tpose_ref = tpose_poses[0]  # [15, 3, 3]
-    
-    print(f"T-pose校准数据已加载 (来自m1第一帧)")
-    return tpose_ref
-
-def apply_tpose_calibration(poses, tpose_ref):
-    """
-    应用T-pose校准
-    将动作姿态相对于T-pose进行校准
-    poses: [T, 15, 3, 3]
-    tpose_ref: [15, 3, 3]
-    """
-    if tpose_ref is None:
-        return poses
-    
-    # 计算相对于T-pose的旋转
-    # R_calibrated = R_tpose^T @ R_motion
-    tpose_inv = tpose_ref.transpose(-1, -2)  # [15, 3, 3]
-    calibrated_poses = torch.einsum('jkl,ijlm->ijkm', tpose_inv, poses)
-    
-    return calibrated_poses
-
-def poses_to_smpl_vertices(poses, m, device='cpu', tpose_ref=None, apply_calibration=True):
+def poses_to_smpl_vertices(poses, m, device='cpu'):
     """将姿态旋转矩阵转换为SMPL顶点"""
     T = poses.shape[0]
-    
-    # 应用T-pose校准（对于m2-m7）
-    if apply_calibration and tpose_ref is not None:
-        poses = apply_tpose_calibration(poses, tpose_ref)
     
     # 转换为local poses
     poses_local = glb2local(poses)
@@ -140,9 +136,10 @@ def poses_to_smpl_vertices(poses, m, device='cpu', tpose_ref=None, apply_calibra
     
     return vertices_list
 
-def visualize_motion(motion_id, m, faces, device, tpose_ref=None):
+def visualize_motion(motion_id, m, faces, device):
     """可视化单个动作"""
-    pose_file = os.path.join(POSE_DIR, f'{motion_id}_poses.pt')
+    # 使用校准后的数据
+    pose_file = os.path.join(POSE_DIR, f'{motion_id}_poses_calibrated.pt')
     
     if not os.path.exists(pose_file):
         print(f"警告: {pose_file} 不存在，跳过...")
@@ -158,20 +155,10 @@ def visualize_motion(motion_id, m, faces, device, tpose_ref=None):
     
     print(f"帧数: {poses.shape[0]}")
     print(f"关节数: {poses.shape[1]}")
+    print(f"已校准: {data.get('calibrated', False)}")
     
-    # m1是T-pose，不需要校准；m2-m7需要基于m1校准
-    apply_calibration = (motion_id != 'm1')
-    if apply_calibration:
-        print("应用T-pose校准 (基于m1)")
-    else:
-        print("T-pose参考数据，不进行校准")
-    
-    # 转换为SMPL顶点
-    vertices_list = poses_to_smpl_vertices(
-        poses, m, device, 
-        tpose_ref=tpose_ref, 
-        apply_calibration=apply_calibration
-    )
+    # 直接使用校准后的数据，不需要再次校准
+    vertices_list = poses_to_smpl_vertices(poses, m, device)
     
     # 渲染视频
     output_path = os.path.join(OUTPUT_DIR, f'{motion_id}_animation.mp4')
@@ -197,15 +184,11 @@ def main():
     faces = m.face
     print(f"SMPL模型已加载 (面数: {len(faces)})")
     
-    # 加载T-pose校准数据
-    print("\n加载T-pose校准数据...")
-    tpose_ref = load_tpose_calibration(m, device)
-    
-    # 渲染所有动作
+    # 渲染所有动作（使用校准后的数据）
     generated_videos = []
     
     for motion_id in MOTION_IDS:
-        video_path = visualize_motion(motion_id, m, faces, device, tpose_ref)
+        video_path = visualize_motion(motion_id, m, faces, device)
         if video_path:
             generated_videos.append(video_path)
     
