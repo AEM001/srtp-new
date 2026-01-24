@@ -129,6 +129,9 @@ data/support_data/
 test_*.png
 test_*.mp4
 
+# 排除视频文件（文件太大，队友可自行渲染生成）
+mydata/processed_final/*.mp4
+
 # OS
 .DS_Store
 Thumbs.db
