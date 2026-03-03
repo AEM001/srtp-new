@@ -1,0 +1,39 @@
+项目结构 (重构后)
+==================
+
+核心目录
+--------
+scripts/              # 新IMU数据处理脚本 (4个文件)
+  ├── extract_odt_data.py        # 1. ODT→TXT
+  ├── process_new_imu_data.py    # 2. TXT→CSV + 坐标变换
+  ├── infer_new_data.py          # 3. 动作重建推理
+  └── visualize_new_data.py      # 4. 可视化渲染
+
+data/                 # 数据文件
+  ├── m1.odt - m7.odt            # 新IMU原始数据
+  ├── SMPL_male.pkl              # SMPL模型
+  └── support_data/              # 支持文件
+
+mydata/               # 工作目录
+  ├── m*.txt                     # 提取的数据
+  ├── csv/                       # CSV格式
+  └── processed_final/           # 处理结果
+
+原始代码
+--------
+preprocess.py         # DIP-IMU数据预处理
+evaluate.py           # 模型评估
+visualize.py          # DIP-IMU可视化
+
+归档目录
+--------
+archive/
+  ├── old_scripts/              # 旧推理脚本
+  ├── old_data_processing/      # 旧数据处理
+  └── mydata/                   # 旧数据文件
+
+文档
+----
+QUICKSTART.md         # 快速开始 (主文档)
+readme.md             # 原始README
+scripts/README.md     # 脚本说明
