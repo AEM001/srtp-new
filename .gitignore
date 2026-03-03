@@ -7,130 +7,41 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
-develop-eggs/
 dist/
-downloads/
 eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
 *.egg
-MANIFEST
-
-# PyInstaller
-*.manifest
-*.spec
 
 # Logs
 *.log
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-local_settings.py
-db.sqlite3
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# celery beat schedule file
-celerybeat-schedule
-
-# SageMath parsed files
-*.sage.py
 
 # Environments
 .env
 .venv
 env/
 venv/
-ENV/
-env.bak/
-venv.bak/
 
-# Spyder project settings
-.spyderproject
-.spyproject
+# Jupyter
+.ipynb_checkpoints
 
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
+# mypy / type checkers
 .mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
 .pyre/
 
-# ML specific - 排除大型训练文件，但保留必要的模型和数据
+# ML large files (keep ckpt/ and data/ tracked)
 *.h5
 *.hdf5
-*.ckpt
 *.npz
 *.pth
 *.onnx
 
 # Project specific
-# 保留模型文件和处理后的数据以便队友使用
-# ckpt/ - 注释掉，允许上传模型
-# data/*.pt - 注释掉，允许上传
 data/support_data/
-# mydata/processed_final/ - 注释掉，允许上传处理结果
 .claude/
+archive/
 
-# 只忽略临时测试文件
-test_*.png
-test_*.mp4
-
-# 排除视频文件（文件太大，队友可自行渲染生成）
-mydata/processed_final/*.mp4
+# Output (regenerable)
+output/video/*.mp4
 
 # OS
 .DS_Store

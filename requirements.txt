@@ -1,0 +1,11 @@
+torch>=1.8
+numpy<2
+pandas
+tqdm
+odfpy
+trimesh
+pyrender
+imageio
+imageio-ffmpeg
+scipy
+opencv-python
