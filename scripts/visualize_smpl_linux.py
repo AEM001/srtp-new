@@ -88,35 +88,9 @@ def render_mesh_sequence(vertices_list, faces, output_path, fps=30):
     
     return frames
 
-def load_tpose_calibration(device):
-    """加载m1的T-pose数据作为校准基准"""
-    tpose_file = os.path.join(POSE_DIR, 'm1_poses.pt')
-    if not os.path.exists(tpose_file):
-        print("警告: m1_poses.pt不存在，无法进行T-pose校准")
-        return None
-    
-    data = torch.load(tpose_file, map_location=device, weights_only=False)
-    tpose_poses = data['poses']
-    tpose_ref = tpose_poses[0]  # 使用第一帧作为T-pose参考
-    
-    print(f"T-pose校准数据已加载 (来自m1第一帧)")
-    return tpose_ref
-
-def apply_tpose_calibration(poses, tpose_ref):
-    """应用T-pose校准"""
-    if tpose_ref is None:
-        return poses
-    
-    tpose_inv = tpose_ref.transpose(-1, -2)
-    calibrated_poses = torch.einsum('jkl,ijlm->ijkm', tpose_inv, poses)
-    return calibrated_poses
-
-def poses_to_smpl_vertices(poses, m, device='cpu', tpose_ref=None, apply_calibration=True):
-    """将姿态旋转矩阵转换为SMPL顶点"""
+def poses_to_smpl_vertices(poses, m, device='cpu'):
+    """将姿态旋转矩阵转换为SMPL顶点（使用已校准的poses）"""
     T = poses.shape[0]
-    
-    if apply_calibration and tpose_ref is not None:
-        poses = apply_tpose_calibration(poses, tpose_ref)
     
     poses_local = glb2local(poses)
     
@@ -131,9 +105,9 @@ def poses_to_smpl_vertices(poses, m, device='cpu', tpose_ref=None, apply_calibra
     
     return vertices_list
 
-def visualize_motion(motion_id, m, faces, device, tpose_ref=None):
-    """可视化单个动作"""
-    pose_file = os.path.join(POSE_DIR, f'{motion_id}_poses.pt')
+def visualize_motion(motion_id, m, faces, device):
+    """可视化单个动作（使用预校准数据）"""
+    pose_file = os.path.join(POSE_DIR, f'{motion_id}_poses_calibrated.pt')
     
     if not os.path.exists(pose_file):
         print(f"警告: {pose_file} 不存在，跳过...")
@@ -147,18 +121,9 @@ def visualize_motion(motion_id, m, faces, device, tpose_ref=None):
     poses = data['poses']
     
     print(f"帧数: {poses.shape[0]}")
+    print("使用预校准数据 (_poses_calibrated.pt)")
     
-    apply_calibration = (motion_id != 'm1')
-    if apply_calibration:
-        print("应用T-pose校准 (基于m1)")
-    else:
-        print("T-pose参考数据，不进行校准")
-    
-    vertices_list = poses_to_smpl_vertices(
-        poses, m, device, 
-        tpose_ref=tpose_ref, 
-        apply_calibration=apply_calibration
-    )
+    vertices_list = poses_to_smpl_vertices(poses, m, device)
     
     output_path = os.path.join(OUTPUT_DIR, f'{motion_id}_animation.mp4')
     print(f"渲染到: {output_path}")
@@ -182,13 +147,10 @@ def main():
     faces = m.face
     print(f"SMPL模型已加载 (面数: {len(faces)})")
     
-    print("\n加载T-pose校准数据...")
-    tpose_ref = load_tpose_calibration(device)
-    
     generated_videos = []
     
     for motion_id in MOTION_IDS:
-        video_path = visualize_motion(motion_id, m, faces, device, tpose_ref)
+        video_path = visualize_motion(motion_id, m, faces, device)
         if video_path:
             generated_videos.append(video_path)
     
