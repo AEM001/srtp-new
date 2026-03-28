@@ -9,3 +9,4 @@ imageio
 imageio-ffmpeg
 scipy
 opencv-python
+flask>=2.3

@@ -1,12 +1,17 @@
-"""SMPL mesh rendering via pyrender + EGL (Linux headless).
+"""SMPL mesh rendering via pyrender (headless, Linux).
 
 Converts calibrated pose .pt files → SMPL vertices → rendered MP4 video.
 Designed for reuse: SMPLRenderer can render single frames (for real-time)
 or full sequences (for offline batch rendering).
+
+Set PYOPENGL_PLATFORM env var before import:
+  osmesa  – software rendering, works in Docker without GPU (default)
+  egl     – hardware-accelerated, requires GPU + EGL drivers
 """
 import os
 
-os.environ['PYOPENGL_PLATFORM'] = 'egl'
+if 'PYOPENGL_PLATFORM' not in os.environ:
+    os.environ['PYOPENGL_PLATFORM'] = 'osmesa'
 
 import sys
 import numpy as np

@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  fip-stream:
+    build: .
+    image: fip-stream:latest
+    container_name: fip-stream
+    restart: unless-stopped
+
+    ports:
+      - "${IMU_PORT:-9000}:9000"     # IMU data input (TCP)
+      - "${STREAM_PORT:-8080}:8080"  # MJPEG HTTP stream
+
+    volumes:
+      # Mount model weights and SMPL data (read-only)
+      - ./ckpt:/app/ckpt:ro
+      - ./data:/app/data:ro
+
+    environment:
+      # OpenGL backend – osmesa (software, no GPU) is the default
+      # Change to egl if using GPU passthrough (see docker-compose.gpu.yml)
+      - PYOPENGL_PLATFORM=osmesa
+      # Server ports (must match 'ports' mapping above)
+      - IMU_PORT=9000
+      - STREAM_PORT=8080
+      # Rendering resolution
+      - RENDER_WIDTH=640
+      - RENDER_HEIGHT=480
+      # JPEG stream quality (1-100)
+      - STREAM_JPEG_QUALITY=85

@@ -10,7 +10,7 @@ MODEL_CHECKPOINT = os.path.join(PROJECT_ROOT, 'ckpt', 'best_model.pt')
 RAW_DATA_DIR = os.path.join(PROJECT_ROOT, 'data', 'raw')
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'output')
 
-# --- Motion IDs ---
+# --- Motion IDs (offline pipeline) ---
 MOTION_IDS = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7']
 TPOSE_ID = 'm1'
 
@@ -20,9 +20,13 @@ BROKEN_IMU_ID = 0
 FILL_IMU_ID = 3
 
 # --- Rendering ---
-RENDER_FPS = 30
-RENDER_WIDTH = 640
-RENDER_HEIGHT = 480
+RENDER_FPS = int(os.environ.get('RENDER_FPS', '30'))
+RENDER_WIDTH = int(os.environ.get('RENDER_WIDTH', '640'))
+RENDER_HEIGHT = int(os.environ.get('RENDER_HEIGHT', '480'))
+
+# --- OpenGL backend (egl for GPU/headless, osmesa for CPU-only Docker) ---
+# Override via env: PYOPENGL_PLATFORM=egl or PYOPENGL_PLATFORM=osmesa
+OPENGL_PLATFORM = os.environ.get('PYOPENGL_PLATFORM', 'osmesa')
 
 # --- Device ---
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -36,6 +40,9 @@ BODY_PARAMS = torch.tensor([
     [0, 187, 84.70, 55.37], [0, 181, 77.00, 50.34],
 ]) / 100
 
+# --- Default body params for real-time streaming (gender=male, height=178cm, weight=80.6kg) ---
+DEFAULT_BODY_PARAMS = torch.tensor([0, 178, 80.62, 52.71]) / 100
+
 # --- Coordinate transform: IMU (X-up, Y-left, Z-front) → Model (X-left, Y-up, Z-front) ---
 import numpy as np
 COORD_TRANSFORM = np.array([
@@ -43,3 +50,10 @@ COORD_TRANSFORM = np.array([
     [1, 0, 0],
     [0, 0, 1],
 ])
+
+# --- Real-time streaming server ---
+IMU_HOST = os.environ.get('IMU_HOST', '0.0.0.0')
+IMU_PORT = int(os.environ.get('IMU_PORT', '9000'))
+STREAM_HOST = os.environ.get('STREAM_HOST', '0.0.0.0')
+STREAM_PORT = int(os.environ.get('STREAM_PORT', '8080'))
+STREAM_JPEG_QUALITY = int(os.environ.get('STREAM_JPEG_QUALITY', '85'))
