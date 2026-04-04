@@ -89,9 +89,12 @@ class RealtimePipeline:
         self.model = model
         self.device = device
         self.jpeg_quality = jpeg_quality
+        self._smpl_path = smpl_path
+        self._render_width = width
+        self._render_height = height
 
         self._body_params = body_params.unsqueeze(0).to(device)  # [1, 4]
-        self.renderer = SMPLRenderer(smpl_path, device=device, width=width, height=height)
+        self.renderer = None  # initialized lazily in the rendering thread
 
         self._integ_hc = None
         self._hip_hc = None
@@ -101,6 +104,13 @@ class RealtimePipeline:
         self._frame_count = 0
 
         self._init_model_state()
+
+    def init_renderer(self):
+        """Initialize the renderer in the calling thread (required for EGL context thread affinity)."""
+        self.renderer = SMPLRenderer(
+            self._smpl_path, device=self.device,
+            width=self._render_width, height=self._render_height,
+        )
 
     # ------------------------------------------------------------------
     # State management

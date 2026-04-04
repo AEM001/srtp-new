@@ -28,6 +28,9 @@ HTTP endpoints:
 
 import os
 import sys
+
+import os; os.environ.setdefault('PYOPENGL_PLATFORM', 'osmesa')
+
 import argparse
 import threading
 import queue
@@ -233,6 +236,8 @@ class StreamServer:
 
     def _processing_loop(self):
         log.info('Processing thread started.')
+        self.pipeline.init_renderer()
+        log.info('Renderer initialized in processing thread.')
         while True:
             try:
                 msg = self._imu_queue.get(timeout=5.0)
