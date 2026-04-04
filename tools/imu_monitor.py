@@ -81,6 +81,7 @@ def main():
                     continue
 
                 imus = msg["imus"]
+                ages_ms = msg.get("ages_ms", [None] * 6)
                 frame_count += 1
 
                 for i, imu in enumerate(imus[:6]):
@@ -90,18 +91,27 @@ def main():
                 elapsed = time.monotonic() - t_start
                 fps = frame_count / elapsed if elapsed > 0 else 0.0
 
+                # 计算各节点时间戳偏差（相对于最小age的节点）
+                valid_ages = [a for a in ages_ms if a is not None]
+                min_age = min(valid_ages) if valid_ages else 0
+                max_age = max(valid_ages) if valid_ages else 0
+                skew_warn = (max_age - min_age) > 100  # >100ms 节点间时差
+
                 clear()
                 print(f"══ IMU 实时稳定性监控  帧:{frame_count}  FPS:{fps:.1f}  Ctrl+C退出 ══")
+                if skew_warn:
+                    print(f"  ⚠ 节点间时间戳偏差 {max_age - min_age}ms（>100ms 可能影响同步）")
                 print()
                 print(f"{'节点':<8}  {'roll':>7} {'pitch':>7} {'yaw':>7}  "
                       f"{'std_r':>6} {'std_p':>6} {'std_y':>6}  "
-                      f"{'跳变_r':>7} {'跳变_p':>7} {'跳变_y':>7}  状态")
-                print("─" * 95)
+                      f"{'跳变_r':>7} {'跳变_p':>7} {'跳变_y':>7}  {'延迟':>6}  状态")
+                print("─" * 108)
 
                 for i in range(6):
                     h = history[i]
+                    age_str = f"{ages_ms[i]}ms" if ages_ms[i] is not None else "  --"
                     if len(h) < 2:
-                        print(f"{NODE_NAMES[i]}  (无数据或全零)")
+                        print(f"{NODE_NAMES[i]}  {'(无数据)':<62}  {age_str:>6}")
                         continue
 
                     arr = np.array(h)       # [N, 6]
@@ -118,6 +128,7 @@ def main():
                     # 判断不稳定
                     std_bad  = sr > 3.0 or sp > 3.0 or sy > 3.0
                     jump_bad = dr > 5.0 or dp > 5.0 or dy > 5.0
+                    age_bad  = ages_ms[i] is not None and ages_ms[i] > 100
                     if std_bad and jump_bad:
                         flag = "⚠ 抖动+跳变"
                     elif std_bad:
@@ -126,16 +137,18 @@ def main():
                         flag = "⡱ 跳变"
                     else:
                         flag = "✓ 稳定"
+                    if age_bad:
+                        flag += " ⏱滞后"
 
                     print(
                         f"{NODE_NAMES[i]}  "
                         f"{roll:>7.1f} {pitch:>7.1f} {yaw:>7.1f}  "
                         f"{sr:>6.2f} {sp:>6.2f} {sy:>6.2f}  "
-                        f"{dr:>7.2f} {dp:>7.2f} {dy:>7.2f}  {flag}"
+                        f"{dr:>7.2f} {dp:>7.2f} {dy:>7.2f}  {age_str:>6}  {flag}"
                     )
 
                 print()
-                print(f"  std 抖动阈值 >3°/s 为不稳定 | 跳变阈值 >5° 为异常跳帧")
+                print(f"  std 抖动阈值 >3° 为不稳定 | 跳变阈值 >5° 为异常跳帧 | 延迟 >100ms 为节点滞后")
                 prev_frame = imus
 
     except KeyboardInterrupt:
