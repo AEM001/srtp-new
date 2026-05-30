@@ -1,25 +1,17 @@
-"""SMPL mesh rendering via pyrender (headless, Linux).
+"""SMPL mesh rendering via VTK (headless, cross-platform).
 
 Converts calibrated pose .pt files → SMPL vertices → rendered MP4 video.
-Designed for reuse: SMPLRenderer can render single frames (for real-time)
-or full sequences (for offline batch rendering).
-
-Set PYOPENGL_PLATFORM env var before import:
-  osmesa  – software rendering, works in Docker without GPU (default)
-  egl     – hardware-accelerated, requires GPU + EGL drivers
+Replaces pyrender/EGL/OSMesa with VTK off-screen rendering for macOS compatibility.
 """
 import os
-
-if 'PYOPENGL_PLATFORM' not in os.environ:
-    os.environ['PYOPENGL_PLATFORM'] = 'osmesa'
-
 import sys
 import numpy as np
 import torch
-import trimesh
-import pyrender
 import imageio
 from tqdm import tqdm
+
+import vtk
+from vtk.util.numpy_support import numpy_to_vtk, vtk_to_numpy
 
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
@@ -30,7 +22,7 @@ from src.eval_tools import glb2local
 
 
 class SMPLRenderer:
-    """Encapsulates SMPL model + pyrender scene for efficient rendering."""
+    """Encapsulates SMPL model + VTK off-screen renderer."""
 
     def __init__(self, smpl_path, device='cpu', width=640, height=480):
         self.device = device
@@ -41,34 +33,65 @@ class SMPLRenderer:
         self.body_model = ParametricModel(smpl_path, device=device)
         self.faces = self.body_model.face
 
-        # Pyrender scene (reused across frames)
+        # VTK off-screen render pipeline
         self._build_scene()
 
     def _build_scene(self):
-        """Create pyrender scene with camera + lights."""
-        self.scene = pyrender.Scene(
-            bg_color=[1.0, 1.0, 1.0, 1.0],
-            ambient_light=[0.3, 0.3, 0.3],
-        )
+        """Create VTK renderer, window, camera and lights."""
+        self.vtk_renderer = vtk.vtkRenderer()
+        self.vtk_renderer.SetBackground(1.0, 1.0, 1.0)
 
-        camera = pyrender.PerspectiveCamera(yfov=np.pi / 3.0)
-        cam_pose = np.eye(4)
-        cam_pose[2, 3] = 2.5
-        self.scene.add(camera, pose=cam_pose)
+        # Camera: z=2.5, look at origin, yfov ~60° (pi/3)
+        camera = vtk.vtkCamera()
+        camera.SetPosition(0, 0, 2.5)
+        camera.SetFocalPoint(0, 0, 0)
+        camera.SetViewUp(0, 1, 0)
+        camera.SetViewAngle(60.0)
+        self.vtk_renderer.SetActiveCamera(camera)
 
-        self.scene.add(
-            pyrender.DirectionalLight(color=[1.0, 1.0, 1.0], intensity=3.0),
-            pose=cam_pose,
-        )
-        fill_pose = np.eye(4)
-        fill_pose[:3, 3] = [0, 1, 2]
-        self.scene.add(
-            pyrender.PointLight(color=[1.0, 1.0, 1.0], intensity=2.0),
-            pose=fill_pose,
-        )
+        # Lights
+        light_dir = vtk.vtkLight()
+        light_dir.SetLightTypeToCameraLight()
+        light_dir.SetIntensity(1.0)
+        light_dir.SetColor(1.0, 1.0, 1.0)
+        self.vtk_renderer.AddLight(light_dir)
 
-        self._offscreen = pyrender.OffscreenRenderer(self.width, self.height)
-        self._mesh_node = None
+        light_pt = vtk.vtkLight()
+        light_pt.SetLightTypeToSceneLight()
+        light_pt.SetPosition(0, 1, 2)
+        light_pt.SetIntensity(0.5)
+        light_pt.SetColor(1.0, 1.0, 1.0)
+        self.vtk_renderer.AddLight(light_pt)
+
+        # Off-screen window
+        self.vtk_renWin = vtk.vtkRenderWindow()
+        self.vtk_renWin.SetOffScreenRendering(1)
+        self.vtk_renWin.SetSize(self.width, self.height)
+        self.vtk_renWin.AddRenderer(self.vtk_renderer)
+
+        # Mesh geometry (reused; only point positions change each frame)
+        self.vtk_points = vtk.vtkPoints()
+        self.vtk_cells = vtk.vtkCellArray()
+        self.vtk_polydata = vtk.vtkPolyData()
+        self.vtk_polydata.SetPoints(self.vtk_points)
+        self.vtk_polydata.SetPolys(self.vtk_cells)
+
+        self.vtk_mapper = vtk.vtkPolyDataMapper()
+        self.vtk_mapper.SetInputData(self.vtk_polydata)
+
+        self.vtk_actor = vtk.vtkActor()
+        self.vtk_actor.SetMapper(self.vtk_mapper)
+        self.vtk_actor.GetProperty().SetColor(100 / 255, 150 / 255, 200 / 255)
+        self.vtk_renderer.AddActor(self.vtk_actor)
+
+        # Pre-build face connectivity (faces don't change)
+        for f in self.faces:
+            self.vtk_cells.InsertNextCell(3, [int(f[0]), int(f[1]), int(f[2])])
+
+        # Reusable window-to-image filter
+        self._w2i = vtk.vtkWindowToImageFilter()
+        self._w2i.SetInput(self.vtk_renWin)
+        self._w2i.SetInputBufferTypeToRGB()
 
     # ---------- Core methods ----------
 
@@ -86,16 +109,24 @@ class SMPLRenderer:
 
     def render_frame(self, vertices):
         """Render a single set of vertices → RGB uint8 array [H, W, 3]."""
-        mesh = trimesh.Trimesh(vertices=vertices, faces=self.faces)
-        mesh.visual.vertex_colors = [100, 150, 200, 255]
-        py_mesh = pyrender.Mesh.from_trimesh(mesh, smooth=True)
+        n = vertices.shape[0]
+        if self.vtk_points.GetNumberOfPoints() != n:
+            self.vtk_points.SetNumberOfPoints(n)
+        pts = numpy_to_vtk(vertices, deep=True)
+        self.vtk_points.SetData(pts)
+        self.vtk_points.Modified()
+        self.vtk_polydata.Modified()
 
-        if self._mesh_node is not None:
-            self.scene.remove_node(self._mesh_node)
-        self._mesh_node = self.scene.add(py_mesh)
+        self.vtk_renWin.Render()
+        self._w2i.Modified()
+        self._w2i.Update()
 
-        color, _ = self._offscreen.render(self.scene)
-        return color
+        img = self._w2i.GetOutput()
+        arr = vtk_to_numpy(img.GetPointData().GetScalars())
+        arr = arr.reshape(self.height, self.width, 3)
+        # VTK origin is bottom-left; flip vertically for normal image orientation
+        arr = np.flipud(arr)
+        return arr
 
     def render_video(self, pose_path, output_path, fps=30):
         """Render a calibrated .pt pose file to an MP4 video.
@@ -118,5 +149,5 @@ class SMPLRenderer:
         return len(vertices_list)
 
     def cleanup(self):
-        """Release GPU / offscreen renderer resources."""
-        self._offscreen.delete()
+        """Release VTK resources."""
+        self.vtk_renWin.Finalize()

@@ -7,6 +7,35 @@ __all__ = ['ParametricModel']
 
 
 import os
+import sys
+import types
+
+# Stub out chumpy so SMPL pickle files load without the real (broken) package
+if 'chumpy' not in sys.modules:
+    _chumpy_mod = types.ModuleType('chumpy')
+    _chumpy_mod.__version__ = '0.70'
+    sys.modules['chumpy'] = _chumpy_mod
+    _ch_mod = types.ModuleType('chumpy.ch')
+    _chumpy_mod.ch = _ch_mod
+    sys.modules['chumpy.ch'] = _ch_mod
+
+    class _ChStub(object):
+        def __new__(cls, *args, **kwargs):
+            return super().__new__(cls)
+        def __setstate__(self, d):
+            self.__dict__.update(d)
+        def __array__(self, dtype=None):
+            import numpy as np
+            if hasattr(self, 'x'):
+                return np.asarray(self.x, dtype=dtype)
+            return np.array([])
+
+    class _ChViewStub(_ChStub):
+        pass
+
+    _ch_mod.Ch = _ChStub
+    _ch_mod.ChView = _ChViewStub
+
 import pickle
 import torch
 import numpy as np

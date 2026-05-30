@@ -29,7 +29,7 @@ HTTP endpoints:
 import os
 import sys
 
-import os; os.environ.setdefault('PYOPENGL_PLATFORM', 'osmesa')
+# renderer now uses VTK (cross-platform); no OpenGL backend env needed
 
 import argparse
 import threading
