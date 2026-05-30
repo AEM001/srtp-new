@@ -57,12 +57,13 @@ body { background: #0d1117; color: #c9d1d9; font-family: 'Consolas', 'Menlo', mo
        padding: 16px; }
 h1 { font-size: 1.1rem; color: #58a6ff; margin-bottom: 4px; }
 #meta { font-size: 0.78rem; color: #8b949e; margin-bottom: 12px; }
-#warn { color: #f0a500; font-size: 0.82rem; min-height: 1.2em; margin-bottom: 8px; }
+#warn { color: #f0a500; font-size: 0.82rem; height: 1.4em; margin-bottom: 8px;
+        overflow: hidden; white-space: nowrap; }
 table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
 th { background: #161b22; color: #58a6ff; padding: 6px 8px; text-align: right;
      border-bottom: 1px solid #30363d; font-weight: normal; }
 th:first-child { text-align: left; }
-td { padding: 5px 8px; text-align: right; border-bottom: 1px solid #21262d; }
+td { padding: 5px 8px; text-align: right; border-bottom: 1px solid #21262d; height: 2em; }
 td:first-child { text-align: left; color: #e6edf3; }
 .ok   { color: #3fb950; }
 .warn { color: #f0a500; }
@@ -125,11 +126,18 @@ function render(data){
     }
   });
 
-  // timestamp skew
+  // timestamp skew: use stddev to avoid false alarms from natural aggregation jitter
   const validAges = ages.filter(a=>a!=null);
-  const skew = validAges.length>1 ? Math.max(...validAges)-Math.min(...validAges) : 0;
-  document.getElementById('warn').textContent =
-    skew > 100 ? `⚠ 节点间时间戳偏差 ${skew}ms（>100ms 可能影响同步）` : '';
+  let skewMsg = '';
+  if(validAges.length > 1){
+    const mean = validAges.reduce((a,b)=>a+b,0)/validAges.length;
+    const sd = Math.sqrt(validAges.reduce((a,b)=>a+(b-mean)**2,0)/validAges.length);
+    const maxAge = Math.max(...validAges);
+    // warn only when stddev>80ms (nodes genuinely out of sync) or a node is very stale (>300ms)
+    if(sd > 80)       skewMsg = `⚠ 节点间同步抖动 σ=${sd.toFixed(0)}ms，可能存在网络延迟`;
+    else if(maxAge > 300) skewMsg = `⚠ 节点 ${ages.indexOf(maxAge)} 数据滞后 ${maxAge}ms`;
+  }
+  document.getElementById('warn').textContent = skewMsg;
 
   document.getElementById('dot').className = 'on' ;
   document.getElementById('meta').textContent =
