@@ -1,25 +1,19 @@
 # FIP 实时 IMU 动作重建与流媒体系统
 
 基于 [FIP (Fast Inertial Pose)](https://doi.org/10.1038/s41467-024-46662-5) 的实时 IMU 人体动作重建系统。  
-多个 ESP32 IMU 节点通过公网 frp 隧道发送数据 → tcp_aggregator 组帧 → FIP 逐帧推理 → SMPL 网格渲染 → MJPEG 视频流实时查看。
+多个 ESP32 IMU 节点通过本地 Wi-Fi 直连 → tcp_aggregator 组帧 → FIP 逐帧推理 → SMPL 网格渲染（VTK） → MJPEG 视频流实时查看。
 
 ---
 
 ## 系统架构
 
 ```
-ESP32 节点 ×N（远程）
-    │  WiFi → TCP → 49.234.57.210:8001（frp 公网端口）
+ESP32 节点 ×N（同一局域网）
+    │  WiFi → TCP → 本机局域网 IP:9001
     │  数据格式：{"node":0,"t":12.3,"acc":[ax,ay,az],"rpy":[r,p,y]}\n
     ▼
-┌──────────────────────────────────────────┐
-│  frp 服务端 (49.234.57.210)              │
-│  remotePort=8001 → localPort=9001 (TCP)  │
-└──────────────────────────────────────────┘
-    │  转发到本机 127.0.0.1:9001
-    ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  tcp_aggregator.py  (本机)                                   │
+│  tcp_aggregator.py  (Mac/本机)                               │
 │                                                              │
 │  • 监听 0.0.0.0:9001  接收各 ESP32 节点的 per-node JSON     │
 │  • yaw 清零（防止陀螺仪积分漂移）                            │
@@ -30,12 +24,12 @@ ESP32 节点 ×N（远程）
     │  TCP:9000  {"t":...,"imus":[[ax,ay,az,r,p,y]×6]}\n
     ▼
 ┌──────────────────────────────────────────────────────────────┐
-│  stream_server.py  (本机)                                    │
+│  stream_server.py  (Mac/本机)                              │
 │                                                              │
-│  TCP:9000 接收 ──→ 队列 ──→ 处理线程（EGL 上下文所在线程）  │
+│  TCP:9000 接收 ──→ 队列 ──→ 处理线程                        │
 │                              ↓                               │
 │                         FIP LSTM 推理                        │
-│                         SMPL 网格渲染（pyrender + EGL）      │
+│                         SMPL 网格渲染（VTK 离屏）            │
 │                         JPEG 编码                            │
 │                              ↓                               │
 │                         Flask HTTP 服务器                    │
@@ -58,11 +52,10 @@ ESP32 节点 ×N（远程）
 
 | 端口 | 协议 | 用途 |
 |------|------|------|
-| `9001` | TCP | tcp_aggregator 监听 ESP32 连接（frp 转发） |
+| `9001` | TCP | tcp_aggregator 监听 ESP32 连接（本机局域网 IP） |
 | `9000` | TCP | stream_server 接收组帧数据（来自 aggregator） |
 | `9002` | TCP | aggregator monitor 广播（供 imu_monitor.py 连接） |
 | `8080` | HTTP | stream_server 对外提供 MJPEG 流和浏览器界面 |
-| `8001` | TCP | frp 公网端口（49.234.57.210），ESP32 连接此地址 |
 
 ---
 
@@ -75,10 +68,9 @@ ESP32 节点 ×N（远程）
 │
 ├── pipeline/
 │   ├── realtime.py            # 实时推理流水线（RealtimePipeline）
-│   │                          # ⚠ renderer 在处理线程中延迟初始化（EGL 线程亲和性）
-│   ├── renderer.py            # SMPL 网格渲染器（pyrender + EGL/osmesa）
+│   ├── renderer.py            # SMPL 网格渲染器（VTK 离屏，macOS/跨平台）
 │   ├── inference.py           # 离线推理工具（FIP 模型加载等）
-│   └── preprocess.py          # 离线预处理（ODT → CSV，仅离线模式使用）
+│   └── preprocess.py          # 离线预处理（CSV 格式转换）
 │
 ├── model/
 │   ├── net.py                 # FIP LSTM 在线推理模型
@@ -90,7 +82,7 @@ ESP32 节点 ×N（远程）
 ├── ckpt/best_model.pt         # FIP 预训练权重
 ├── data/
 │   ├── SMPL_male.pkl          # SMPL 模型
-│   └── raw/                   # 原始 ODT 文件（仅离线模式）
+│   └── raw/                   # 原始 CSV 文件（离线模式输入）
 │
 ├── tools/
 │   └── imu_monitor.py         # 实时 IMU 稳定性监控终端工具
@@ -100,34 +92,31 @@ ESP32 节点 ×N（远程）
 │   ├── esp32_imu_tcp.ino      # ESP32 参考固件
 │   └── esp32_tcp_final.ino    # ESP32 实际烧录固件（远程设备使用）
 │
-├── Dockerfile                 # Docker 镜像（CPU/osmesa，无需 GPU）
-├── docker-compose.yml         # 标准部署（CPU）
-├── docker-compose.gpu.yml     # GPU 加速部署（EGL）
-└── run_pipeline.py            # 离线批处理流水线（ODT → 视频）
+├── Dockerfile                 # Docker 镜像（跨平台 VTK 渲染）
+├── docker-compose.yml         # 标准部署
+├── docker-compose.gpu.yml     # GPU 加速部署（可选）
+└── run_pipeline.py            # 离线批处理流水线（CSV → 视频）
 ```
 
 ---
 
-## 快速启动（本机裸机运行）
+## 快速启动（Mac 本机裸机运行）
 
 > 当前实际部署方式，不使用 Docker。
 
 ### 前提条件
 
-- Python 虚拟环境：`/home/albert/learn/l-vllm/.venv`
+- Python 虚拟环境：`.venv`（uv 管理）
 - `ckpt/best_model.pt` 和 `data/SMPL_male.pkl` 已就位
-- frp 客户端（`frpc`）已配置并运行
+- ESP32 与 Mac 在同一 Wi-Fi 局域网
 
 ### 第一步：启动 stream_server
 
 ```bash
-cd /home/albert/code/srtp/srtp-new
-PYOPENGL_PLATFORM=egl \
-  /home/albert/learn/l-vllm/.venv/bin/python stream_server.py \
-  > /tmp/stream_server.log 2>&1 &
+cd /Users/Mac/code/research/srtp-new
+.venv/bin/python stream_server.py > /tmp/stream_server.log 2>&1 &
 ```
 
-> **注意**：必须设置 `PYOPENGL_PLATFORM=egl`（当前环境 osmesa 不可用）。  
 > 启动需约 15-20 秒加载模型。查看启动状态：
 > ```bash
 > tail -f /tmp/stream_server.log
@@ -137,8 +126,8 @@ PYOPENGL_PLATFORM=egl \
 ### 第二步：启动 tcp_aggregator
 
 ```bash
-cd /home/albert/code/srtp/srtp-new
-python3 tcp_aggregator.py > /tmp/aggregator.log 2>&1 &
+cd /Users/Mac/code/research/srtp-new
+.venv/bin/python tcp_aggregator.py > /tmp/aggregator.log 2>&1 &
 ```
 
 查看状态：
@@ -147,32 +136,9 @@ tail -f /tmp/aggregator.log
 ```
 看到 `Monitor broadcast listening on 127.0.0.1:9002` 表示就绪。
 
-### 第三步：启动 frpc（frp 客户端）
+ESP32 配置目标为 **本机局域网 IP:9001**（例如 `192.168.1.100:9001`）。
 
-确认 frpc 已运行（将远程公网端口 8001 映射到本机 9001）：
-
-```bash
-# 检查 frpc 是否运行
-pgrep -a frpc
-
-# 若未运行，手动启动（根据实际 frpc 配置文件路径）
-frpc -c /path/to/frpc.toml &
-```
-
-frpc 配置示例（`frpc.toml`）：
-```toml
-serverAddr = "49.234.57.210"
-serverPort = 7000
-
-[[proxies]]
-name       = "imu-tcp"
-type       = "tcp"
-localIP    = "127.0.0.1"
-localPort  = 9001
-remotePort = 8001
-```
-
-### 第四步：验证运行状态
+### 第三步：验证运行状态
 
 ```bash
 # 检查 stream_server 是否在处理帧
@@ -184,7 +150,7 @@ grep "Active nodes" /tmp/aggregator.log | tail -3
 # 期望输出：Active nodes: [0, 1, 2, 3, 5]
 ```
 
-### 第五步：打开浏览器
+### 第四步：打开浏览器
 
 ```
 http://localhost:8080/
@@ -194,13 +160,13 @@ http://localhost:8080/
 
 ## ESP32 固件说明
 
-烧录到远程 ESP32 的是 `examples/esp32_tcp_final.ino`：
+烧录到 ESP32 的是 `examples/esp32_tcp_final.ino`：
 
 ```cpp
 // 关键配置
 #define NODE_INDEX  0               // 节点编号 0-5，每块板不同
-#define SERVER_IP   "49.234.57.210" // frp 服务器公网 IP
-#define SERVER_PORT 8001            // frp 公网端口（映射到本机 9001）
+#define SERVER_IP   "192.168.1.100" // Mac 本机局域网 IP（ifconfig 查看）
+#define SERVER_PORT 9001            // tcp_aggregator 监听端口
 ```
 
 **ESP32 发送格式**（每帧一行 JSON）：
@@ -287,8 +253,7 @@ python tools/imu_monitor.py
 
 ### 重要实现细节
 
-**EGL 线程亲和性**：pyrender 的 EGL 上下文必须在创建它的线程中使用。  
-因此 `SMPLRenderer` 在 `_processing_loop` 线程启动时延迟初始化（`pipeline.init_renderer()`），而非在主线程构造。
+**VTK 离屏渲染**：renderer 使用 VTK `vtkRenderWindow` + `SetOffScreenRendering(1)`，无需 OpenGL/EGL 配置，跨平台兼容 macOS/Linux。
 
 ### HTTP 接口
 
@@ -461,7 +426,7 @@ TCP 接收 JSON 帧 {"t":..., "imus":[[ax,ay,az,r,p,y]×6]}
   → T-pose 校准（R_cal = R_tpose^T × R_raw，未校准时跳过）
   → glb2local（全局旋转 → SMPL 局部旋转）
   → SMPL 前向运动学（24 关节，FIP 预测 15 个，其余固定为单位旋转）
-  → pyrender 渲染（EGL 离屏渲染 → RGB 帧）
+  → VTK 离屏渲染 → RGB 帧
   → JPEG 编码（cv2.imencode）
   → MJPEG 推送
 ```
@@ -476,10 +441,9 @@ TCP 接收 JSON 帧 {"t":..., "imus":[[ax,ay,az,r,p,y]×6]}
 
 ### 渲染后端
 
-| 后端 | 环境变量 | 当前状态 |
-|------|----------|---------|
-| EGL | `PYOPENGL_PLATFORM=egl` | ✅ **当前使用**，需要 GPU |
-| osmesa | `PYOPENGL_PLATFORM=osmesa` | ❌ 当前环境不可用（`OSMesaCreateContextAttribs` 缺失） |
+| 后端 | 说明 | 状态 |
+|------|------|------|
+| VTK | 跨平台离屏渲染，macOS/Linux 原生支持 | ✅ **当前使用** |
 
 ---
 
@@ -498,9 +462,12 @@ grep "Sending frame" /tmp/aggregator.log | tail -3
 ss -tnp | grep 9000
 ```
 
-### stream_server 渲染报错 `eglMakeCurrent failed`
+### stream_server 显示 "Renderer initialization failed"
 
-EGL context 线程亲和性问题。确认 `pipeline/realtime.py` 中 `renderer = None`（构造时不初始化），由 `_processing_loop` 调用 `pipeline.init_renderer()` 完成初始化。
+检查 VTK 是否安装：
+```bash
+.venv/bin/python -c "import vtk; print(vtk.vtkVersion.GetVTKVersion())"
+```
 
 ### 渲染人形抖动不稳定
 
@@ -521,11 +488,12 @@ grep "stale" /tmp/aggregator.log | tail -5
 
 检查 ESP32 发送频率是否低于 `1/STALE_S = 2Hz`，或网络延迟是否过高。
 
-### frpc 未运行
+### ESP32 无法连接
 
+检查 Mac 防火墙是否放行 9001 端口，确认 ESP32 与 Mac 在同一 Wi-Fi：
 ```bash
-pgrep -a frpc || echo "frpc 未运行！"
-# ESP32 将无法连接到本机
+# 查看本机局域网 IP
+ifconfig | grep "inet " | grep -v 127.0.0.1
 ```
 
 ---
@@ -536,4 +504,4 @@ pgrep -a frpc || echo "frpc 未运行！"
 2. **Yaw 固定为零**：当前实现将所有节点 yaw 清零，人物朝向不随头部/身体转动变化
 3. **右脚踝缺失**：如果 ESP32 节点 4 未连接，右脚踝槽位为零值，渲染中该肢体保持默认姿态
 4. **numpy 版本**：需要 `numpy<2` 以兼容 scipy/SMPL 模型加载
-5. **osmesa 不可用**：当前 Python 环境的 osmesa 绑定缺少 `OSMesaCreateContextAttribs`，只能使用 EGL
+5. **chumpy 兼容**：`src/kinematic_model.py` 已内嵌 stub 模块替代 chumpy，无需安装

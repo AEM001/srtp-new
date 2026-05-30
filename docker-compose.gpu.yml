@@ -12,7 +12,3 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-
-    environment:
-      # EGL hardware-accelerated rendering (needs GPU + NVIDIA EGL drivers)
-      - PYOPENGL_PLATFORM=egl

@@ -32,8 +32,8 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-AGGREGATOR_HOST = "0.0.0.0"  # 监听所有接口，接收公网ESP32连接
-AGGREGATOR_PORT = 9001      # ESP32 boards connect HERE (需frp映射到49.234.57.210:9001)
+AGGREGATOR_HOST = "0.0.0.0"  # 监听所有接口，ESP32 通过本地 Wi-Fi 直接连接
+AGGREGATOR_PORT = 9001      # ESP32 boards connect HERE (本机局域网 IP:9001)
 STREAM_HOST     = "127.0.0.1"
 STREAM_PORT     = 9000      # stream_server.py listens here
 MONITOR_PORT    = 9002      # monitor clients connect here to receive assembled frames

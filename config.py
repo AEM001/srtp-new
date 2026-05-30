@@ -7,7 +7,6 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 # --- Paths ---
 SMPL_MODEL = os.path.join(PROJECT_ROOT, 'data', 'SMPL_male.pkl')
 MODEL_CHECKPOINT = os.path.join(PROJECT_ROOT, 'ckpt', 'best_model.pt')
-RAW_DATA_DIR = os.path.join(PROJECT_ROOT, 'data', 'raw')
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'output')
 
 # --- Motion IDs (offline pipeline) ---
@@ -23,10 +22,6 @@ FILL_IMU_ID = 3
 RENDER_FPS = int(os.environ.get('RENDER_FPS', '30'))
 RENDER_WIDTH = int(os.environ.get('RENDER_WIDTH', '640'))
 RENDER_HEIGHT = int(os.environ.get('RENDER_HEIGHT', '480'))
-
-# --- OpenGL backend (egl for GPU/headless, osmesa for CPU-only Docker) ---
-# Override via env: PYOPENGL_PLATFORM=egl or PYOPENGL_PLATFORM=osmesa
-OPENGL_PLATFORM = os.environ.get('PYOPENGL_PLATFORM', 'osmesa')
 
 # --- Device ---
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

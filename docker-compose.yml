@@ -17,9 +17,6 @@ services:
       - ./data:/app/data:ro
 
     environment:
-      # OpenGL backend – osmesa (software, no GPU) is the default
-      # Change to egl if using GPU passthrough (see docker-compose.gpu.yml)
-      - PYOPENGL_PLATFORM=osmesa
       # Server ports (must match 'ports' mapping above)
       - IMU_PORT=9000
       - STREAM_PORT=8080

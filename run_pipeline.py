@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Full offline pipeline: ODT → processed CSV → FIP inference → T-pose calibration → video.
+"""Full offline pipeline: CSV → FIP inference → T-pose calibration → video.
 
 Usage:
     python run_pipeline.py                        # Full pipeline (all steps, all motions)
-    python run_pipeline.py --step render          # Only render videos
     python run_pipeline.py --step infer           # Only inference + calibration
+    python run_pipeline.py --step render          # Only render videos
     python run_pipeline.py --motions m2 m3        # Process specific motions
     python run_pipeline.py --step render --motions m2  # Render only m2
 """
@@ -19,36 +19,19 @@ sys.path.insert(0, os.path.join(project_root, 'human_body_prior'))
 
 from config import (
     MOTION_IDS, TPOSE_ID, DEVICE, BODY_PARAMS,
-    MODEL_CHECKPOINT, SMPL_MODEL, RAW_DATA_DIR, OUTPUT_DIR,
+    MODEL_CHECKPOINT, SMPL_MODEL, OUTPUT_DIR,
     RENDER_FPS, RENDER_WIDTH, RENDER_HEIGHT,
 )
 
-
-def step_preprocess(motion_ids):
-    """Step 1: ODT → processed CSV."""
-    from pipeline.preprocess import preprocess_motion
-
-    print("\n" + "=" * 60)
-    print("Step 1: Preprocess  (ODT → CSV)")
-    print("=" * 60)
-
-    csv_dir = os.path.join(OUTPUT_DIR, 'csv')
-    for mid in motion_ids:
-        odt_path = os.path.join(RAW_DATA_DIR, f'{mid}.odt')
-        csv_path = os.path.join(csv_dir, f'{mid}_processed.csv')
-        if os.path.exists(odt_path):
-            preprocess_motion(odt_path, csv_path)
-        else:
-            print(f"  Warning: {odt_path} not found")
-    return csv_dir
+CSV_DIR = os.path.join(OUTPUT_DIR, 'csv')
 
 
-def step_inference(motion_ids, csv_dir):
-    """Step 2: CSV → calibrated poses."""
+def step_inference(motion_ids):
+    """Step 1: CSV → calibrated poses."""
     from pipeline.inference import load_model, process_all_motions
 
     print("\n" + "=" * 60)
-    print("Step 2: Inference + Calibration  (CSV → poses)")
+    print("Step 1: Inference + Calibration  (CSV → poses)")
     print("=" * 60)
 
     model = load_model(MODEL_CHECKPOINT, DEVICE)
@@ -56,16 +39,16 @@ def step_inference(motion_ids, csv_dir):
 
     pose_dir = os.path.join(OUTPUT_DIR, 'poses')
     return process_all_motions(
-        csv_dir, pose_dir, model, DEVICE, BODY_PARAMS, motion_ids, TPOSE_ID,
+        CSV_DIR, pose_dir, model, DEVICE, BODY_PARAMS, motion_ids, TPOSE_ID,
     )
 
 
 def step_render(motion_ids):
-    """Step 3: Calibrated poses → video."""
+    """Step 2: Calibrated poses → video."""
     from pipeline.renderer import SMPLRenderer
 
     print("\n" + "=" * 60)
-    print("Step 3: Render  (poses → video)")
+    print("Step 2: Render  (poses → video)")
     print("=" * 60)
 
     renderer = SMPLRenderer(
@@ -92,7 +75,7 @@ def step_render(motion_ids):
 
 def main():
     parser = argparse.ArgumentParser(description='FIP Motion Reconstruction Pipeline')
-    parser.add_argument('--step', choices=['preprocess', 'infer', 'render', 'all'], default='all',
+    parser.add_argument('--step', choices=['infer', 'render', 'all'], default='all',
                         help='Which pipeline step to run (default: all)')
     parser.add_argument('--motions', nargs='+', default=MOTION_IDS,
                         help='Motion IDs to process (default: m1-m7)')
@@ -107,13 +90,8 @@ def main():
 
     t0 = time.time()
 
-    csv_dir = os.path.join(OUTPUT_DIR, 'csv')
-
-    if args.step in ('all', 'preprocess'):
-        csv_dir = step_preprocess(args.motions)
-
     if args.step in ('all', 'infer'):
-        step_inference(args.motions, csv_dir)
+        step_inference(args.motions)
 
     if args.step in ('all', 'render'):
         step_render(args.motions)
